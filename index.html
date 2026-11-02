@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Edwin Company – Ingresar</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="login">
+  <div class="login-pagina">
+
+    <section class="marca">
+      <h1>Edwin Company</h1>
+      <p>Portal de alumnos y docentes</p>
+
+      <svg viewBox="0 0 800 320" preserveAspectRatio="xMidYMax meet" aria-hidden="true" focusable="false">
+        <defs>
+          <radialGradient id="brillo" cx="50%" cy="50%" r="50%">
+            <stop offset="0" stop-color="#fff3c4" stop-opacity=".9"/>
+            <stop offset="1" stop-color="#fff3c4" stop-opacity="0"/>
+          </radialGradient>
+          <linearGradient id="piedra" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#f6ecd9"/>
+            <stop offset="1" stop-color="#e0d0b2"/>
+          </linearGradient>
+          <linearGradient id="pasto" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#4f9e5a"/>
+            <stop offset="1" stop-color="#2d6b3b"/>
+          </linearGradient>
+        </defs>
+
+        <!-- sol y nubes -->
+        <circle cx="660" cy="150" r="115" fill="url(#brillo)"/>
+        <circle cx="660" cy="150" r="38" fill="#fff0b8"/>
+        <g fill="#ffffff" opacity=".55">
+          <ellipse cx="130" cy="90" rx="70" ry="16"/><ellipse cx="170" cy="78" rx="45" ry="14"/>
+          <ellipse cx="520" cy="60" rx="80" ry="15"/><ellipse cx="570" cy="48" rx="45" ry="12"/>
+        </g>
+
+        <!-- colinas lejanas -->
+        <path d="M0 255 Q120 205 260 238 T520 228 T800 244 V320 H0Z" fill="#2c6c9a" opacity=".55"/>
+
+        <!-- edificio -->
+        <rect x="112" y="192" width="136" height="10" fill="#b9a888"/>
+        <rect x="552" y="192" width="136" height="10" fill="#b9a888"/>
+        <rect x="120" y="202" width="120" height="83" fill="url(#piedra)"/>
+        <rect x="560" y="202" width="120" height="83" fill="url(#piedra)"/>
+        <rect x="240" y="165" width="320" height="120" fill="url(#piedra)"/>
+        <polygon points="228,165 400,95 572,165" fill="#cdbb9c"/>
+        <polygon points="252,162 400,105 548,162" fill="url(#piedra)"/>
+        <rect x="226" y="162" width="348" height="8" fill="#b9a888"/>
+
+        <!-- reloj y bandera -->
+        <circle cx="400" cy="139" r="15" fill="#ffffff" stroke="#0b2f55" stroke-width="3"/>
+        <path d="M400 139V129M400 139L407 143" stroke="#0b2f55" stroke-width="2" fill="none"/>
+        <line x1="400" y1="95" x2="400" y2="58" stroke="#5b5b5b" stroke-width="2"/>
+        <rect x="400" y="58" width="26" height="15" fill="#00bcd4"/>
+
+        <!-- ventanas -->
+        <g fill="#7fc4e8" stroke="#8c7b5a" stroke-width="1.5">
+          <rect x="279" y="195" width="18" height="34"/><rect x="319" y="195" width="18" height="34"/>
+          <rect x="463" y="195" width="18" height="34"/><rect x="503" y="195" width="18" height="34"/>
+          <rect x="135" y="222" width="22" height="34"/><rect x="170" y="222" width="22" height="34"/><rect x="205" y="222" width="22" height="34"/>
+          <rect x="575" y="222" width="22" height="34"/><rect x="610" y="222" width="22" height="34"/><rect x="645" y="222" width="22" height="34"/>
+        </g>
+
+        <!-- columnas -->
+        <g fill="#fffaf0" stroke="#d4c5a6" stroke-width="1">
+          <rect x="262" y="172" width="12" height="113"/><rect x="302" y="172" width="12" height="113"/><rect x="342" y="172" width="12" height="113"/>
+          <rect x="446" y="172" width="12" height="113"/><rect x="486" y="172" width="12" height="113"/><rect x="526" y="172" width="12" height="113"/>
+        </g>
+
+        <!-- puerta y escalones -->
+        <path d="M382 285V242A18 18 0 0 1 418 242V285Z" fill="#5b3a29"/>
+        <rect x="235" y="277" width="330" height="8" fill="#d9ccb2"/>
+        <rect x="245" y="271" width="310" height="6" fill="#e6dbc3"/>
+
+        <!-- suelo, camino y árboles -->
+        <rect x="0" y="285" width="800" height="35" fill="url(#pasto)"/>
+        <polygon points="376,285 424,285 475,320 325,320" fill="#e3d9c4"/>
+        <g>
+          <rect x="66" y="255" width="8" height="32" fill="#6b4a2f"/>
+          <circle cx="70" cy="240" r="30" fill="#2f7d4e"/><circle cx="52" cy="254" r="20" fill="#276b42"/><circle cx="90" cy="254" r="20" fill="#276b42"/>
+          <rect x="726" y="255" width="8" height="32" fill="#6b4a2f"/>
+          <circle cx="730" cy="240" r="30" fill="#2f7d4e"/><circle cx="712" cy="254" r="20" fill="#276b42"/><circle cx="750" cy="254" r="20" fill="#276b42"/>
+          <ellipse cx="150" cy="287" rx="28" ry="11" fill="#2f7d4e"/><ellipse cx="650" cy="287" rx="28" ry="11" fill="#2f7d4e"/>
+        </g>
+      </svg>
+    </section>
+
+    <section class="acceso">
+      <main class="caja">
+        <h2 class="titulo">Ingresar</h2>
+        <p class="sub">Entrá con tu usuario de alumno o docente.</p>
+
+        <form id="formLogin">
+          <label for="rol">Soy</label>
+          <select id="rol" required>
+            <option value="" disabled selected>Elegí una opción</option>
+            <option value="alumno">Alumno</option>
+            <option value="docente">Docente</option>
+          </select>
+
+          <label for="usuario">Usuario</label>
+          <input id="usuario" autocomplete="username" required>
+
+          <label for="clave">Contraseña</label>
+          <input id="clave" type="password" autocomplete="current-password" required>
+
+          <p id="error" role="alert"></p>
+          <button type="submit">Ingresar</button>
+        </form>
+
+        <p class="demo">Prueba: ana / 1234 (alumno) · marta / abcd (docente)</p>
+      </main>
+    </section>
+
+  </div>
+
+  <script src="auth.js"></script>
+  <script>
+    // Si ya hay sesión, ir directo a su página
+    const ya = obtenerSesion();
+    if (ya) location.href = PAGINAS[ya.rol];
+
+    document.getElementById("formLogin").addEventListener("submit", e => {
+      e.preventDefault();
+      const resultado = iniciarSesion(
+        document.getElementById("usuario").value,
+        document.getElementById("clave").value,
+        document.getElementById("rol").value
+      );
+      if (resultado.error) {
+        document.getElementById("error").textContent = resultado.error;
+        return;
+      }
+      location.href = PAGINAS[resultado.usuario.rol];   // alumno -> alumno.html, docente -> docente.html
+    });
+  </script>
+</body>
+</html>

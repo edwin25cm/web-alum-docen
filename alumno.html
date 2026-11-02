@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel del alumno</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="alumno">
+  <main class="caja ancha">
+    <h1 id="saludo"></h1>
+    <p class="sub">Panel del alumno</p>
+
+    <div class="pestanas" role="tablist">
+      <button role="tab" id="tab-materias"    aria-selected="true"  data-vista="materias">Materias</button>
+      <button role="tab" id="tab-notas"       aria-selected="false" data-vista="notas">Notas</button>
+      <button role="tab" id="tab-presentismo" aria-selected="false" data-vista="presentismo">Presentismo</button>
+    </div>
+
+    <section id="vista" aria-live="polite"></section>
+
+    <button class="secundario" onclick="cerrarSesion()">Cerrar sesión</button>
+  </main>
+
+  <script src="auth.js"></script>
+  <script src="datos.js"></script>
+  <script src="store.js"></script>
+  <script>
+    const sesion = protegerPagina("alumno");
+    const DATOS = cargarDatos();
+    const datos = sesion ? DATOS[sesion.usuario] : null;
+    const NOTA_MINIMA = 6;           // nota mínima para aprobar
+    const ASISTENCIA_MINIMA = 75;    // % mínimo de presentismo
+
+    if (sesion) document.getElementById("saludo").textContent = "Hola, " + sesion.nombre;
+
+    function esc(t) {
+      return String(t).replace(/[&<>"']/g, c =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    function promedio(lista) {
+      const v = lista.filter(n => n !== null);
+      return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+    }
+
+    function vistaMaterias() {
+      const filas = datos.materias.map(m =>
+        `<tr><td>${esc(m.nombre)}</td><td>${esc(m.docente)}</td><td>${esc(m.horario)}</td></tr>`).join("");
+      return `<div class="tabla-scroll"><table>
+        <thead><tr><th>Materia</th><th>Docente</th><th>Horario</th></tr></thead>
+        <tbody>${filas}</tbody></table></div>`;
+    }
+
+    function vistaNotas() {
+      let sumaProm = [];
+      const filas = Object.entries(datos.notas).map(([materia, ns]) => {
+        const p = promedio(ns);
+        if (p !== null) sumaProm.push(p);
+        const celdas = ns.map(n => `<td>${n === null ? "–" : n}</td>`).join("");
+        const estado = p === null ? "Sin notas"
+                     : p >= NOTA_MINIMA ? "Aprobada" : "En riesgo";
+        const clase = p !== null && p < NOTA_MINIMA ? "mal" : "bien";
+        return `<tr><td>${esc(materia)}</td>${celdas}
+          <td><strong>${p === null ? "–" : p.toFixed(1)}</strong></td>
+          <td class="${clase}">${estado}</td></tr>`;
+      }).join("");
+      const general = sumaProm.length
+        ? (sumaProm.reduce((a, b) => a + b, 0) / sumaProm.length).toFixed(1) : "–";
+      return `<p class="resumen">Promedio general: <strong>${general}</strong></p>
+        <div class="tabla-scroll"><table>
+        <thead><tr><th>Materia</th><th>1.º trim.</th><th>2.º trim.</th><th>3.º trim.</th><th>Promedio</th><th>Estado</th></tr></thead>
+        <tbody>${filas}</tbody></table></div>`;
+    }
+
+    function vistaPresentismo() {
+      let clasesTot = 0, ausTot = 0;
+      const filas = Object.entries(datos.asistencia).map(([materia, a0]) => {
+        const a = asistenciaTotal(a0);
+        clasesTot += a.clases; ausTot += a.ausentes;
+        const pres = a.clases - a.ausentes;
+        const pct = a.clases ? Math.round(pres / a.clases * 100) : null;
+        const ok = pct === null || pct >= ASISTENCIA_MINIMA;
+        const estado = pct === null ? "Sin datos" : ok ? "Regular" : "En riesgo de libre";
+        return `<tr><td>${esc(materia)}</td><td>${pres}</td><td>${a.ausentes}</td>
+          <td><strong>${pct === null ? "–" : pct + "%"}</strong></td>
+          <td class="${ok ? "bien" : "mal"}">${estado}</td></tr>`;
+      }).join("");
+      const pctTot = clasesTot ? Math.round((clasesTot - ausTot) / clasesTot * 100) : 0;
+      return `<p class="resumen">Presentismo general: <strong>${pctTot}%</strong>
+          (${clasesTot - ausTot} presentes, ${ausTot} ausentes)</p>
+        <div class="tabla-scroll"><table>
+        <thead><tr><th>Materia</th><th>Presentes</th><th>Ausentes</th><th>%</th><th>Estado</th></tr></thead>
+        <tbody>${filas}</tbody></table></div>
+        <p class="nota-pie">Se necesita al menos ${ASISTENCIA_MINIMA}% de asistencia para mantener la regularidad.</p>`;
+    }
+
+    const VISTAS = { materias: vistaMaterias, notas: vistaNotas, presentismo: vistaPresentismo };
+
+    function mostrar(nombre) {
+      document.querySelectorAll("[role=tab]").forEach(b =>
+        b.setAttribute("aria-selected", b.dataset.vista === nombre));
+      document.getElementById("vista").innerHTML = datos && datos.materias.length
+        ? VISTAS[nombre]()
+        : "<p>Todavía no tenés materias cargadas. Tu docente las va a agregar.</p>";
+    }
+
+    document.querySelectorAll("[role=tab]").forEach(b =>
+      b.addEventListener("click", () => mostrar(b.dataset.vista)));
+
+    if (sesion) mostrar("materias");
+  </script>
+</body>
+</html>

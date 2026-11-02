@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel del docente</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="docente">
+  <main class="caja ancha">
+    <h1 id="saludo"></h1>
+    <p class="sub">Panel del docente</p>
+
+    <div class="pestanas" role="tablist">
+      <button role="tab" aria-selected="true"  data-vista="alumnos">Alumnos</button>
+      <button role="tab" aria-selected="false" data-vista="notas">Notas</button>
+      <button role="tab" aria-selected="false" data-vista="presentismo">Presentismo</button>
+      <button role="tab" aria-selected="false" data-vista="materias">Materias</button>
+      <button role="tab" aria-selected="false" data-vista="cargar">Cargar datos</button>
+    </div>
+
+    <div id="filtro-caja" class="filtro">
+      <label for="filtro">Materia</label>
+      <select id="filtro"></select>
+    </div>
+
+    <section id="vista" aria-live="polite"></section>
+
+    <button class="secundario" onclick="cerrarSesion()">Cerrar sesión</button>
+  </main>
+
+  <script src="auth.js"></script>
+  <script src="datos.js"></script>
+  <script src="store.js"></script>
+  <script>
+    const sesion = protegerPagina("docente");
+    const NOTA_MINIMA = 6;
+    const ASISTENCIA_MINIMA = 75;
+
+    let DATOS = cargarDatos();
+    let filas = [], horarios = {}, misMaterias = [];
+    let alumnoSel = null, mensaje = null, vistaActual = "alumnos";
+    let rangoDesde = 3, rangoHasta = 12, alumnoPres = "todos";
+    let mesCarga = (() => { const h = new Date().getMonth() + 1; return MESES_ESCOLARES.includes(h) ? h : 3; })();
+
+    // ---- Ayudas ----
+    function esc(t) {
+      return String(t).replace(/[&<>"']/g, c =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+    function promedio(lista) {
+      const v = lista.filter(n => n !== null);
+      return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+    }
+    function porcentaje(a) {
+      return a.clases ? Math.round((a.clases - a.ausentes) / a.clases * 100) : null;
+    }
+    function fmt(n) { return n === null ? "–" : n.toFixed(1); }
+    function tabla(encabezados, cuerpo) {
+      return `<div class="tabla-scroll"><table><thead><tr>${
+        encabezados.map(h => `<th>${h}</th>`).join("")
+      }</tr></thead><tbody>${cuerpo}</tbody></table></div>`;
+    }
+
+    // Una "fila" = un alumno cursando una materia que dicta este docente.
+    function recalcular() {
+      filas = []; horarios = {};
+      for (const [usuario, d] of Object.entries(DATOS)) {
+        const persona = USUARIOS.find(u => u.usuario === usuario);
+        for (const m of d.materias) {
+          if (m.docente !== sesion.nombre) continue;
+          horarios[m.nombre] = m.horario;
+          filas.push({
+            alumno: persona ? persona.nombre : usuario,
+            materia: m.nombre,
+            notas: d.notas[m.nombre] || [null, null, null],
+            asistencia: d.asistencia[m.nombre] || { meses: {} }
+          });
+        }
+      }
+      misMaterias = Object.keys(horarios);
+    }
+
+    function llenarFiltro() {
+      const sel = document.getElementById("filtro");
+      const actual = sel.value || "todas";
+      sel.innerHTML = `<option value="todas">Todas mis materias</option>` +
+        misMaterias.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
+      sel.value = misMaterias.includes(actual) ? actual : "todas";
+    }
+
+    function filtradas() {
+      const f = document.getElementById("filtro").value;
+      return f === "todas" ? filas : filas.filter(x => x.materia === f);
+    }
+    function estadoNota(p) {
+      if (p === null) return `<td>Sin notas</td>`;
+      return p >= NOTA_MINIMA ? `<td class="bien">Aprobando</td>` : `<td class="mal">En riesgo</td>`;
+    }
+    function estadoAsist(pct) {
+      if (pct === null) return `<td>Sin datos</td>`;
+      return pct >= ASISTENCIA_MINIMA ? `<td class="bien">Regular</td>` : `<td class="mal">En riesgo de libre</td>`;
+    }
+
+    // ---- Vistas de lectura ----
+    function vistaAlumnos() {
+      const porAlumno = {};
+      filtradas().forEach(x => (porAlumno[x.alumno] = porAlumno[x.alumno] || []).push(x));
+      const cuerpo = Object.entries(porAlumno).map(([nombre, items]) => {
+        const prom = promedio(items.map(i => promedio(i.notas)).filter(n => n !== null));
+        const clases = items.reduce((s, i) => s + asistenciaTotal(i.asistencia).clases, 0);
+        const aus = items.reduce((s, i) => s + asistenciaTotal(i.asistencia).ausentes, 0);
+        const pct = clases ? Math.round((clases - aus) / clases * 100) : null;
+        return `<tr><td>${esc(nombre)}</td><td>${items.map(i => esc(i.materia)).join(", ")}</td>
+          <td><strong>${fmt(prom)}</strong></td><td><strong>${pct === null ? "–" : pct + "%"}</strong></td></tr>`;
+      }).join("");
+      return `<p class="resumen">Alumnos: <strong>${Object.keys(porAlumno).length}</strong></p>` +
+        tabla(["Alumno", "Materias", "Promedio", "Presentismo"], cuerpo);
+    }
+
+    function vistaNotas() {
+      const cuerpo = filtradas().map(x => {
+        const p = promedio(x.notas);
+        return `<tr><td>${esc(x.alumno)}</td><td>${esc(x.materia)}</td>
+          ${x.notas.map(n => `<td>${n === null ? "–" : n}</td>`).join("")}
+          <td><strong>${fmt(p)}</strong></td>${estadoNota(p)}</tr>`;
+      }).join("");
+      const proms = filtradas().map(x => promedio(x.notas)).filter(n => n !== null);
+      return `<p class="resumen">Promedio del curso: <strong>${fmt(promedio(proms))}</strong></p>` +
+        tabla(["Alumno", "Materia", "1.º trim.", "2.º trim.", "3.º trim.", "Promedio", "Estado"], cuerpo);
+    }
+
+    function selMes(id, etiqueta, valor) {
+      return `<div><label for="${id}">${etiqueta}</label><select id="${id}">${
+        MESES_ESCOLARES.map(m => `<option value="${m}"${m === valor ? " selected" : ""}>${MESES[m - 1]}</option>`).join("")
+      }</select></div>`;
+    }
+
+    // "Lunes (2), Miércoles (1)"
+    function resumenDias(fechas) {
+      if (!fechas.length) return "–";
+      const cuenta = {};
+      fechas.forEach(f => { const d = diaDeSemana(f); cuenta[d] = (cuenta[d] || 0) + 1; });
+      return [1, 2, 3, 4, 5, 6, 0].filter(d => cuenta[d])
+        .map(d => `${DIAS_SEMANA[d]} (${cuenta[d]})`).join(", ");
+    }
+
+    function vistaPresentismo() {
+      const alumnosLista = [...new Set(filas.map(x => x.alumno))];
+      if (alumnoPres !== "todos" && !alumnosLista.includes(alumnoPres)) alumnoPres = "todos";
+
+      const controles = `<div class="formgrid filtros-pres">
+        ${selMes("selDesde", "Desde", rangoDesde)}
+        ${selMes("selHasta", "Hasta", rangoHasta)}
+        <div><label for="selAlumnoPres">Alumno</label><select id="selAlumnoPres">
+          <option value="todos">Todos los alumnos</option>${
+            alumnosLista.map(n => `<option value="${esc(n)}"${n === alumnoPres ? " selected" : ""}>${esc(n)}</option>`).join("")
+          }</select></div></div>`;
+
+      if (rangoDesde > rangoHasta) {
+        return controles + `<p class="msg err" role="alert">El mes “Desde” tiene que ser anterior o igual al mes “Hasta”.</p>`;
+      }
+
+      const lista = filtradas().filter(x => alumnoPres === "todos" || x.alumno === alumnoPres);
+      let faltasTot = 0;
+      const detalle = [];
+      const cuerpo = lista.map(x => {
+        const a = asistenciaEnRango(x.asistencia, rangoDesde, rangoHasta);
+        const fechas = faltasEnRango(x.asistencia, rangoDesde, rangoHasta);
+        fechas.forEach(f => detalle.push({ fecha: f, alumno: x.alumno, materia: x.materia }));
+        const pct = porcentaje(a);
+        faltasTot += a.ausentes;
+        return `<tr><td>${esc(x.alumno)}</td><td>${esc(x.materia)}</td><td>${a.clases}</td>
+          <td>${a.clases - a.ausentes}</td><td><strong>${a.ausentes}</strong></td>
+          <td>${resumenDias(fechas)}</td>
+          <td><strong>${pct === null ? "–" : pct + "%"}</strong></td>${estadoAsist(pct)}</tr>`;
+      }).join("");
+
+      detalle.sort((p, q) => p.fecha.localeCompare(q.fecha) || p.alumno.localeCompare(q.alumno));
+      const detalleHtml = detalle.length
+        ? `<h2 style="margin-top:1.75rem">Detalle de faltas</h2>` +
+          tabla(["Fecha", "Día", "Alumno", "Materia"], detalle.map(f =>
+            `<tr><td>${fechaCorta(f.fecha)}</td><td>${nombreDia(f.fecha)}</td>
+             <td>${esc(f.alumno)}</td><td>${esc(f.materia)}</td></tr>`).join(""))
+        : "";
+
+      const m1 = MESES[rangoDesde - 1].toLowerCase(), m2 = MESES[rangoHasta - 1].toLowerCase();
+      const periodo = rangoDesde === rangoHasta ? `en ${m1}` : `de ${m1} a ${m2}`;
+      const quien = alumnoPres === "todos" ? "de todos los alumnos" : `de ${esc(alumnoPres)}`;
+      return controles +
+        `<p class="resumen">Faltas ${quien} ${periodo}: <strong>${faltasTot}</strong></p>` +
+        (lista.length ? tabla(["Alumno", "Materia", "Clases dadas", "Presentes", "Faltas", "Días en que faltó", "%", "Estado"], cuerpo)
+                      : "<p>No hay datos para mostrar.</p>") +
+        detalleHtml +
+        `<p class="nota-pie">El porcentaje y el estado se calculan solo con los meses elegidos.
+          Se necesita al menos ${ASISTENCIA_MINIMA}% de asistencia para mantener la regularidad.</p>`;
+    }
+
+    function vistaMaterias() {
+      const cuerpo = misMaterias.map(nombre => {
+        const items = filas.filter(x => x.materia === nombre);
+        const prom = promedio(items.map(i => promedio(i.notas)).filter(n => n !== null));
+        const clases = items.reduce((s, i) => s + asistenciaTotal(i.asistencia).clases, 0);
+        const aus = items.reduce((s, i) => s + asistenciaTotal(i.asistencia).ausentes, 0);
+        const pct = clases ? Math.round((clases - aus) / clases * 100) : null;
+        return `<tr><td>${esc(nombre)}</td><td>${esc(horarios[nombre])}</td><td>${items.length}</td>
+          <td>${fmt(prom)}</td><td>${pct === null ? "–" : pct + "%"}</td></tr>`;
+      }).join("");
+      return tabla(["Materia", "Horario", "Alumnos", "Promedio del curso", "Presentismo del curso"], cuerpo);
+    }
+
+    // ---- Vista para CARGAR datos ----
+    function vistaCargar() {
+      const alumnos = USUARIOS.filter(u => u.rol === "alumno");
+      if (!alumnos.some(a => a.usuario === alumnoSel)) alumnoSel = alumnos.length ? alumnos[0].usuario : null;
+      const d = (alumnoSel && DATOS[alumnoSel]) || { materias: [], notas: {}, asistencia: {} };
+      const propias = d.materias.filter(m => m.docente === sesion.nombre);
+      const aviso = mensaje; mensaje = null;
+      const mesNombre = MESES[mesCarga - 1];
+      const mm = String(mesCarga).padStart(2, "0");
+      const ultimoDia = new Date(ANIO_LECTIVO, mesCarga, 0).getDate();
+
+      const opciones = alumnos.map(a =>
+        `<option value="${esc(a.usuario)}"${a.usuario === alumnoSel ? " selected" : ""}>${esc(a.nombre)}</option>`).join("");
+
+      const faltasDelMes = [];   // para el listado de abajo
+      const filasHtml = propias.map(m => {
+        const n = d.notas[m.nombre] || [null, null, null];
+        const a = d.asistencia[m.nombre] || { meses: {}, faltas: [] };
+        const meses = a.meses || {};
+        const delMes = (meses[mesCarga] || {}).clases || 0;
+        let otrasC = 0;
+        for (const [k, v] of Object.entries(meses)) if (k !== String(mesCarga)) otrasC += v.clases || 0;
+        const fechasMes = faltasEnRango(a, mesCarga, mesCarga);
+        fechasMes.forEach(f => faltasDelMes.push({ fecha: f, materia: m.nombre }));
+        const ausAnio = faltasEnRango(a, 1, 12).length;
+        const inNota = k => `<td><input type="number" min="1" max="10" step="0.5" data-campo="n${k}"
+            value="${n[k] === null || n[k] === undefined ? "" : n[k]}"
+            aria-label="Nota del trimestre ${k + 1} en ${esc(m.nombre)}"></td>`;
+        return `<tr data-materia="${esc(m.nombre)}" data-otras-clases="${otrasC}"
+            data-aus-mes="${fechasMes.length}" data-aus-total="${ausAnio}">
+          <td>${esc(m.nombre)}</td>${inNota(0)}${inNota(1)}${inNota(2)}
+          <td class="c-prom"></td>
+          <td><input type="number" min="0" step="1" data-campo="clases" value="${delMes}"
+              aria-label="Clases dadas en ${mesNombre} en ${esc(m.nombre)}"></td>
+          <td>${fechasMes.length}</td>
+          <td>${ausAnio}</td>
+          <td class="c-pct"></td>
+          <td><button type="button" class="secundario" data-quitar="${esc(m.nombre)}">Quitar</button></td></tr>`;
+      }).join("");
+
+      let cuerpo;
+      if (!alumnos.length) cuerpo = "<p>Todavía no hay alumnos. Creá uno más abajo.</p>";
+      else if (!propias.length) cuerpo = "<p>Este alumno no cursa ninguna de tus materias. Agregale una más abajo.</p>";
+      else cuerpo = tabla(["Materia", "1.º trim.", "2.º trim.", "3.º trim.", "Promedio",
+                           `Clases dadas en ${mesNombre.toLowerCase()}`, `Faltas en ${mesNombre.toLowerCase()}`,
+                           "Faltas del año", "Presentismo del año", "Quitar"], filasHtml) +
+           `<button type="button" id="btnGuardar" class="accion">Guardar cambios</button>`;
+
+      // Registro de faltas (con fecha y día de la semana)
+      faltasDelMes.sort((p, q) => p.fecha.localeCompare(q.fecha) || p.materia.localeCompare(q.materia));
+      const listadoFaltas = faltasDelMes.length
+        ? tabla(["Fecha", "Día", "Materia", "Quitar"], faltasDelMes.map(f =>
+            `<tr><td>${fechaCorta(f.fecha)}</td><td>${nombreDia(f.fecha)}</td><td>${esc(f.materia)}</td>
+             <td><button type="button" class="secundario" data-falta-materia="${esc(f.materia)}"
+                 data-falta-fecha="${f.fecha}">Quitar</button></td></tr>`).join(""))
+        : `<p class="nota-pie">No hay faltas registradas en ${mesNombre.toLowerCase()}.</p>`;
+
+      const bloqueFaltas = propias.length ? `
+        <div class="bloque">
+          <h2>Faltas de ${mesNombre.toLowerCase()}</h2>
+          <div class="formgrid">
+            <div><label for="faltaMateria">Materia</label>
+              <select id="faltaMateria">${propias.map(m => `<option value="${esc(m.nombre)}">${esc(m.nombre)}</option>`).join("")}</select></div>
+            <div><label for="faltaFecha">Día en que faltó</label>
+              <input id="faltaFecha" type="date" min="${ANIO_LECTIVO}-${mm}-01" max="${ANIO_LECTIVO}-${mm}-${ultimoDia}"></div>
+            <button type="button" id="btnRegistrarFalta">Registrar falta</button>
+          </div>
+          <div style="margin-top:1rem">${listadoFaltas}</div>
+        </div>` : "";
+
+      const sugerencias = misMaterias.map(m => `<option value="${esc(m)}">`).join("");
+
+      return `
+        <div class="formgrid filtros-pres">
+          <div><label for="selAlumno">Alumno</label>
+            <select id="selAlumno" ${alumnos.length ? "" : "disabled"}>${opciones}</select></div>
+          ${selMes("selMesCarga", "Mes de la asistencia", mesCarga)}
+        </div>
+        <p class="nota-pie">Las notas van de 1 a 10 (podés usar medios puntos). Las clases dadas se cargan mes por mes:
+          elegí el mes arriba. Las faltas se registran con la fecha, más abajo, y el sistema calcula solo el día de la semana,
+          el promedio y el presentismo. Los cambios también se guardan al cambiar de alumno, de mes o de pestaña.</p>
+        <div style="margin-top:1rem">${cuerpo}</div>
+        <p id="msgCargar" class="msg ${aviso ? aviso.tipo : ""}" role="status">${aviso ? esc(aviso.texto) : ""}</p>
+
+        ${bloqueFaltas}
+
+        <div class="bloque">
+          <h2>Agregar una materia a este alumno</h2>
+          <div class="formgrid">
+            <div><label for="nuevaMateria">Materia</label>
+              <input id="nuevaMateria" list="listaMaterias" autocomplete="off">
+              <datalist id="listaMaterias">${sugerencias}</datalist></div>
+            <div><label for="nuevoHorario">Horario</label>
+              <input id="nuevoHorario" placeholder="Ej: Lunes 8:00" autocomplete="off"></div>
+            <button type="button" id="btnAgregarMateria">Agregar materia</button>
+          </div>
+        </div>
+
+        <div class="bloque">
+          <h2>Crear un alumno nuevo</h2>
+          <div class="formgrid">
+            <div><label for="nuevoNombre">Nombre completo</label>
+              <input id="nuevoNombre" autocomplete="off"></div>
+            <div><label for="nuevoUsuario">Usuario</label>
+              <input id="nuevoUsuario" autocomplete="off"></div>
+            <div><label for="nuevaClave">Contraseña</label>
+              <input id="nuevaClave" type="password" autocomplete="new-password"></div>
+            <button type="button" id="btnCrearAlumno">Crear alumno</button>
+          </div>
+        </div>
+
+        <div class="bloque">
+          <button type="button" id="btnRestaurar" class="secundario accion">Restaurar datos de ejemplo</button>
+        </div>`;
+    }
+
+    // ---- Lógica de la carga de datos ----
+    function avisar(texto, tipo) {
+      const el = document.getElementById("msgCargar");
+      if (!el) return;
+      el.textContent = texto;
+      el.className = "msg " + (tipo || "");
+    }
+
+    function campo(tr, nombre) { return tr.querySelector(`[data-campo="${nombre}"]`); }
+
+    // Muestra promedio y presentismo del año en vivo mientras se escribe
+    function calcFila(tr) {
+      const ns = ["n0", "n1", "n2"].map(c => campo(tr, c).value.trim())
+        .filter(v => v !== "").map(Number).filter(n => !isNaN(n));
+      tr.querySelector(".c-prom").innerHTML = `<strong>${fmt(promedio(ns))}</strong>`;
+      const clases = Number(campo(tr, "clases").value) || 0;
+      const totC = clases + Number(tr.dataset.otrasClases);
+      const totA = Number(tr.dataset.ausTotal);
+      const valido = Number(tr.dataset.ausMes) <= clases;
+      tr.querySelector(".c-pct").innerHTML = valido && totC > 0
+        ? `<strong>${Math.round((totC - totA) / totC * 100)}%</strong>` : "–";
+    }
+
+    // Lee la tabla, valida y guarda notas y clases dadas. Devuelve true si todo salió bien.
+    function guardarFilas() {
+      if (!alumnoSel || !DATOS[alumnoSel]) return true;
+      const d = DATOS[alumnoSel];
+      const mesNombre = MESES[mesCarga - 1].toLowerCase();
+      const nuevos = [];
+      for (const tr of document.querySelectorAll("#vista tr[data-materia]")) {
+        const materia = tr.dataset.materia;
+        const notas = [];
+        for (const c of ["n0", "n1", "n2"]) {
+          const v = campo(tr, c).value.trim();
+          if (v === "") { notas.push(null); continue; }
+          const n = Number(v);
+          if (isNaN(n) || n < 1 || n > 10) {
+            avisar(`Nota inválida en ${materia}: usá un número entre 1 y 10.`, "err"); return false;
+          }
+          notas.push(n);
+        }
+        const clases = Number(campo(tr, "clases").value || 0);
+        if (!Number.isInteger(clases) || clases < 0) {
+          avisar(`Clases dadas inválidas en ${materia} (${mesNombre}): tiene que ser un número entero.`, "err"); return false;
+        }
+        const faltasMes = Number(tr.dataset.ausMes);
+        if (faltasMes > clases) {
+          avisar(`En ${materia} hay ${faltasMes} falta(s) registradas en ${mesNombre}: las clases dadas no pueden ser menos.`, "err"); return false;
+        }
+        nuevos.push({ materia, notas, clases });
+      }
+      nuevos.forEach(x => {
+        d.notas[x.materia] = x.notas;
+        const a = d.asistencia[x.materia] = d.asistencia[x.materia] || { meses: {}, faltas: [] };
+        a.meses = a.meses || {}; a.faltas = a.faltas || [];
+        a.meses[mesCarga] = { clases: x.clases };
+      });
+      if (!guardarDatos(DATOS)) { avisar("No se pudo guardar en este navegador.", "err"); return false; }
+      recalcular(); llenarFiltro();
+      return true;
+    }
+
+    function registrarFalta() {
+      if (!alumnoSel) { avisar("Primero creá un alumno.", "err"); return; }
+      if (!guardarFilas()) return;
+      const materia = document.getElementById("faltaMateria").value;
+      const fecha = document.getElementById("faltaFecha").value;
+      const mesNombre = MESES[mesCarga - 1].toLowerCase();
+      if (!materia) { avisar("Elegí la materia.", "err"); return; }
+      if (!fecha) { avisar("Elegí el día en que faltó.", "err"); return; }
+      if (mesDeFecha(fecha) !== mesCarga || Number(fecha.slice(0, 4)) !== ANIO_LECTIVO) {
+        avisar(`La fecha tiene que ser de ${mesNombre} de ${ANIO_LECTIVO}. Para otro mes, cambiá el mes arriba.`, "err"); return;
+      }
+      if (diaDeSemana(fecha) === 0 || diaDeSemana(fecha) === 6) {
+        avisar(`El ${fechaCorta(fecha)} cae ${nombreDia(fecha).toLowerCase()}: no hay clases.`, "err"); return;
+      }
+      const d = DATOS[alumnoSel];
+      const a = d.asistencia[materia] = d.asistencia[materia] || { meses: {}, faltas: [] };
+      a.meses = a.meses || {}; a.faltas = a.faltas || [];
+      if (a.faltas.includes(fecha)) { avisar("Esa falta ya está registrada.", "err"); return; }
+      const clases = (a.meses[mesCarga] || {}).clases || 0;
+      const faltasMes = faltasEnRango(a, mesCarga, mesCarga).length;
+      if (faltasMes + 1 > clases) {
+        avisar(`Primero cargá las clases dadas de ${mesNombre} en ${materia} (ahora figuran ${clases}).`, "err"); return;
+      }
+      a.faltas.push(fecha); a.faltas.sort();
+      guardarDatos(DATOS); recalcular();
+      mensaje = { texto: `Falta registrada: ${nombreDia(fecha)} ${fechaCorta(fecha)} en ${materia}.`, tipo: "ok" };
+      mostrar("cargar");
+    }
+
+    function quitarFalta(materia, fecha) {
+      if (!confirm(`¿Quitar la falta del ${nombreDia(fecha).toLowerCase()} ${fechaCorta(fecha)} en ${materia}?`)) return;
+      if (!guardarFilas()) return;
+      const a = DATOS[alumnoSel].asistencia[materia];
+      if (a && a.faltas) a.faltas = a.faltas.filter(f => f !== fecha);
+      guardarDatos(DATOS); recalcular();
+      mensaje = { texto: "Falta quitada.", tipo: "ok" };
+      mostrar("cargar");
+    }
+
+    function agregarMateria() {
+      if (!alumnoSel) { avisar("Primero creá un alumno.", "err"); return; }
+      if (!guardarFilas()) return;
+      const nombre = document.getElementById("nuevaMateria").value.trim();
+      const horario = document.getElementById("nuevoHorario").value.trim() || horarios[nombre] || "Sin horario";
+      if (!nombre) { avisar("Escribí el nombre de la materia.", "err"); return; }
+      const d = DATOS[alumnoSel];
+      if (d.materias.some(m => m.nombre.toLowerCase() === nombre.toLowerCase())) {
+        avisar("Este alumno ya tiene esa materia.", "err"); return;
+      }
+      d.materias.push({ nombre, docente: sesion.nombre, horario });
+      d.notas[nombre] = [null, null, null];
+      d.asistencia[nombre] = { meses: {}, faltas: [] };
+      guardarDatos(DATOS); recalcular(); llenarFiltro();
+      mensaje = { texto: `Materia "${nombre}" agregada.`, tipo: "ok" };
+      mostrar("cargar");
+    }
+
+    function quitarMateria(nombre) {
+      if (!confirm(`¿Quitar "${nombre}" de este alumno? Se borran sus notas y asistencias de esa materia.`)) return;
+      if (!guardarFilas()) return;
+      const d = DATOS[alumnoSel];
+      d.materias = d.materias.filter(m => !(m.nombre === nombre && m.docente === sesion.nombre));
+      delete d.notas[nombre]; delete d.asistencia[nombre];
+      guardarDatos(DATOS); recalcular(); llenarFiltro();
+      mensaje = { texto: `Materia "${nombre}" quitada.`, tipo: "ok" };
+      mostrar("cargar");
+    }
+
+    function crearAlumno() {
+      const nombre = document.getElementById("nuevoNombre").value.trim();
+      const usuario = document.getElementById("nuevoUsuario").value.trim().toLowerCase();
+      const clave = document.getElementById("nuevaClave").value;
+      if (!nombre || !usuario || !clave) { avisar("Completá nombre, usuario y contraseña.", "err"); return; }
+      if (!/^[a-z0-9._-]+$/.test(usuario)) {
+        avisar("El usuario solo puede tener letras sin tildes, números, punto, guion y guion bajo.", "err"); return;
+      }
+      if (clave.length < 4) { avisar("La contraseña tiene que tener al menos 4 caracteres.", "err"); return; }
+      if (USUARIOS.some(u => u.usuario === usuario)) { avisar("Ese usuario ya existe.", "err"); return; }
+      if (!guardarFilas()) return;
+      USUARIOS.push({ usuario, clave, rol: "alumno", nombre });
+      guardarUsuariosExtra();
+      DATOS[usuario] = { materias: [], notas: {}, asistencia: {} };
+      guardarDatos(DATOS);
+      alumnoSel = usuario;
+      mensaje = { texto: `Alumno "${nombre}" creado. Ya puede ingresar con el usuario ${usuario}.`, tipo: "ok" };
+      mostrar("cargar");
+    }
+
+    function restaurar() {
+      if (!confirm("Se borran todos los cambios y los alumnos creados, y vuelven los datos de ejemplo. ¿Seguro?")) return;
+      restaurarDatos();
+      location.reload();
+    }
+
+    // ---- Navegación ----
+    const VISTAS = { alumnos: vistaAlumnos, notas: vistaNotas, presentismo: vistaPresentismo,
+                     materias: vistaMaterias, cargar: vistaCargar };
+
+    function mostrar(nombre) {
+      vistaActual = nombre;
+      document.querySelectorAll("[role=tab]").forEach(b =>
+        b.setAttribute("aria-selected", b.dataset.vista === nombre));
+      document.getElementById("filtro-caja").hidden = (nombre === "materias" || nombre === "cargar");
+      const v = document.getElementById("vista");
+      if (!misMaterias.length && nombre !== "cargar") {
+        v.innerHTML = "<p>Todavía no tenés materias ni alumnos asignados. Usá la pestaña “Cargar datos” para empezar.</p>";
+        return;
+      }
+      v.innerHTML = VISTAS[nombre]();
+      if (nombre === "cargar") v.querySelectorAll("tr[data-materia]").forEach(calcFila);
+    }
+
+    if (sesion) {
+      document.getElementById("saludo").textContent = "Hola, " + sesion.nombre;
+      recalcular();
+      llenarFiltro();
+
+      document.getElementById("filtro").addEventListener("change", () => mostrar(vistaActual));
+
+      document.querySelectorAll("[role=tab]").forEach(b =>
+        b.addEventListener("click", () => {
+          if (vistaActual === "cargar" && b.dataset.vista !== "cargar" && !guardarFilas()) return;
+          mostrar(b.dataset.vista);
+        }));
+
+      const vista = document.getElementById("vista");
+      vista.addEventListener("input", e => {
+        const tr = e.target.closest("tr[data-materia]");
+        if (tr) calcFila(tr);
+      });
+      vista.addEventListener("change", e => {
+        const id = e.target.id;
+        if (id === "selAlumno") {
+          if (!guardarFilas()) { e.target.value = alumnoSel; return; }
+          alumnoSel = e.target.value;
+          mostrar("cargar");
+        } else if (id === "selMesCarga") {
+          if (!guardarFilas()) { e.target.value = String(mesCarga); return; }
+          mesCarga = Number(e.target.value);
+          mostrar("cargar");
+        } else if (id === "selDesde" || id === "selHasta" || id === "selAlumnoPres") {
+          if (id === "selDesde") rangoDesde = Number(e.target.value);
+          if (id === "selHasta") rangoHasta = Number(e.target.value);
+          if (id === "selAlumnoPres") alumnoPres = e.target.value;
+          mostrar("presentismo");
+        } else return;
+        const el = document.getElementById(id);   // devolver el foco al selector
+        if (el) el.focus();
+      });
+      vista.addEventListener("click", e => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        if (b.id === "btnGuardar") { if (guardarFilas()) avisar("Cambios guardados.", "ok"); }
+        else if (b.id === "btnAgregarMateria") agregarMateria();
+        else if (b.id === "btnCrearAlumno") crearAlumno();
+        else if (b.id === "btnRestaurar") restaurar();
+        else if (b.id === "btnRegistrarFalta") registrarFalta();
+        else if (b.dataset.faltaFecha) quitarFalta(b.dataset.faltaMateria, b.dataset.faltaFecha);
+        else if (b.dataset.quitar) quitarMateria(b.dataset.quitar);
+      });
+
+      mostrar("alumnos");
+    }
+  </script>
+</body>
+</html>
